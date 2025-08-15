@@ -96,16 +96,18 @@ type Install struct {
 	// KubeVersion allows specifying a custom kubernetes version to use and
 	// APIVersions allows a manual set of supported API Versions to be passed
 	// (for things like templating). These are ignored if ClientOnly is false
-	KubeVersion *chartutil.KubeVersion
-	APIVersions chartutil.VersionSet
+	KubeVersion       *chartutil.KubeVersion
+	APIVersions       chartutil.VersionSet
+	StrictAPIVersions bool
 	// Used by helm template to render charts with .Release.IsUpgrade. Ignored if Dry-Run is false
 	IsUpgrade bool
 	// Enable DNS lookups when rendering templates
 	EnableDNS bool
 	// Used by helm template to add the release as part of OutputDir path
 	// OutputDir/<ReleaseName>
-	UseReleaseName bool
-	PostRenderer   postrender.PostRenderer
+	UseReleaseName  bool
+	PostRenderer    postrender.PostRenderer
+	ApiVersionsFile string
 	// Lock to control raceconditions when the process receives a SIGTERM
 	Lock sync.Mutex
 }
@@ -261,7 +263,19 @@ func (i *Install) RunWithContext(ctx context.Context, chrt *chart.Chart, vals ma
 		if i.KubeVersion != nil {
 			i.cfg.Capabilities.KubeVersion = *i.KubeVersion
 		}
-		i.cfg.Capabilities.APIVersions = append(i.cfg.Capabilities.APIVersions, i.APIVersions...)
+		if len(i.ApiVersionsFile) > 0 {
+			body, err := os.ReadFile(i.ApiVersionsFile)
+			if err != nil {
+				return nil, err
+			}
+			apis := strings.Split(string(body), ",")
+			i.APIVersions = chartutil.VersionSet(append(i.APIVersions, apis...))
+		}
+		if i.StrictAPIVersions && len(i.APIVersions) > 0 {
+			i.cfg.Capabilities.APIVersions = i.APIVersions
+		} else {
+			i.cfg.Capabilities.APIVersions = append(i.cfg.Capabilities.APIVersions, i.APIVersions...)
+		}
 		i.cfg.KubeClient = &kubefake.PrintingKubeClient{Out: io.Discard}
 
 		mem := driver.NewMemory()
